@@ -6,6 +6,15 @@ import Foundation
 /// Actions handled by the `AccountSecurityProcessor`.
 ///
 enum AccountSecurityAction: Equatable {
+    /// Opens the certificate replacement sheet.
+    case replaceCertificateTapped
+
+    /// Dismisses the sheet and clears transient certificate data.
+    case certificateImportDismissed
+
+    /// The file picker could not provide a certificate file.
+    case certificateFileImportFailed(String)
+
     /// Clears the account fingerprint phrase URL after the web app has been opened.
     case clearFingerprintPhraseUrl
 

@@ -24,6 +24,7 @@ class VaultListProcessorTests: BitwardenTestCase { // swiftlint:disable:this typ
     var billingRepository: MockBillingRepository!
     var billingService: MockBillingService!
     var changeKdfService: MockChangeKdfService!
+    var clientCertificateService: MockClientCertificateService!
     var configService: MockConfigService!
     var coordinator: MockCoordinator<VaultRoute, AuthAction>!
     var environmentService: MockEnvironmentService!
@@ -68,6 +69,7 @@ class VaultListProcessorTests: BitwardenTestCase { // swiftlint:disable:this typ
         billingService.shouldShowUpgradedToPremiumActionCardReturnValue = false
         errorReporter = MockErrorReporter()
         changeKdfService = MockChangeKdfService()
+        clientCertificateService = MockClientCertificateService()
         configService = MockConfigService()
         coordinator = MockCoordinator()
         environmentService = MockEnvironmentService()
@@ -98,7 +100,9 @@ class VaultListProcessorTests: BitwardenTestCase { // swiftlint:disable:this typ
             billingRepository: billingRepository,
             billingService: billingService,
             changeKdfService: changeKdfService,
+            clientCertificateService: clientCertificateService,
             configService: configService,
+            environmentService: environmentService,
             errorReporter: errorReporter,
             eventService: eventService,
             flightRecorder: flightRecorder,
@@ -132,6 +136,7 @@ class VaultListProcessorTests: BitwardenTestCase { // swiftlint:disable:this typ
         billingRepository = nil
         billingService = nil
         changeKdfService = nil
+        clientCertificateService = nil
         configService = nil
         coordinator = nil
         environmentService = nil
@@ -1011,6 +1016,117 @@ class VaultListProcessorTests: BitwardenTestCase { // swiftlint:disable:this typ
         XCTAssertTrue(vaultRepository.fetchSyncCalled)
         XCTAssertFalse(try XCTUnwrap(vaultRepository.fetchSyncIsPeriodic))
         XCTAssertEqual(vaultRepository.fetchSyncForceSync, false)
+    }
+
+    /// Manual refresh reports expiry even when sync would be skipped or an existing TLS session works.
+    @MainActor
+    func test_perform_refreshVault_expiredCertificate() async {
+        environmentService.clientCertificateFingerprint = "expired"
+        clientCertificateService.getCertificateValidityReturnValue = ClientCertificateValidity(
+            notBefore: .distantPast, notAfter: timeProvider.presentTime,
+        )
+        let section = VaultListSection(id: "1", items: [.fixture()], name: "Section")
+        subject.state.loadingState = .data([section])
+
+        await subject.perform(.refreshVault)
+
+        XCTAssertFalse(vaultRepository.fetchSyncCalled)
+        XCTAssertEqual(coordinator.errorAlertsShown as? [ClientCertificateError], [.certificateExpired])
+        XCTAssertTrue(coordinator.alertShown.isEmpty)
+        XCTAssertEqual(subject.state.loadingState, .data([section]))
+    }
+
+    @MainActor
+    func test_perform_refreshVault_validCertificateContinuesSync() async {
+        environmentService.clientCertificateFingerprint = "valid"
+        clientCertificateService.getCertificateValidityReturnValue = ClientCertificateValidity(
+            notBefore: .distantPast, notAfter: timeProvider.presentTime.addingTimeInterval(1),
+        )
+
+        await subject.perform(.refreshVault)
+
+        XCTAssertTrue(vaultRepository.fetchSyncCalled)
+        XCTAssertTrue(coordinator.errorAlertsShown.isEmpty)
+    }
+
+    @MainActor
+    func test_perform_refreshVault_certificateLookupFailureContinuesSync() async {
+        environmentService.clientCertificateFingerprint = "configured"
+        clientCertificateService.getCertificateValidityThrowableError = BitwardenTestError.example
+
+        await subject.perform(.refreshVault)
+
+        XCTAssertTrue(vaultRepository.fetchSyncCalled)
+        XCTAssertTrue(coordinator.errorAlertsShown.isEmpty)
+        XCTAssertEqual(errorReporter.errors.last as? BitwardenTestError, .example)
+    }
+
+    /// A certificate that expires during sync takes precedence over the generic sync-failure dialog.
+    @MainActor
+    func test_perform_refreshVault_certificateExpiresDuringSync() async {
+        environmentService.clientCertificateFingerprint = "expires-during-sync"
+        let now = timeProvider.presentTime
+        var checks = 0
+        clientCertificateService.getCertificateValidityClosure = { _ in
+            checks += 1
+            return ClientCertificateValidity(
+                notBefore: .distantPast,
+                notAfter: now.addingTimeInterval(checks == 1 ? 1 : -1),
+            )
+        }
+        vaultRepository.fetchSyncResult = .failure(BitwardenTestError.example)
+        let section = VaultListSection(id: "1", items: [.fixture()], name: "Section")
+        subject.state.loadingState = .data([section])
+
+        await subject.perform(.refreshVault)
+
+        XCTAssertTrue(vaultRepository.fetchSyncCalled)
+        XCTAssertEqual(coordinator.errorAlertsShown as? [ClientCertificateError], [.certificateExpired])
+        XCTAssertTrue(coordinator.alertShown.isEmpty)
+        XCTAssertEqual(subject.state.loadingState, .data([section]))
+    }
+
+    @MainActor
+    func test_perform_refreshVault_expiredCertificateRecoveryNavigation() async throws {
+        environmentService.clientCertificateFingerprint = "expired"
+        clientCertificateService.getCertificateValidityReturnValue = ClientCertificateValidity(
+            notBefore: .distantPast, notAfter: .distantPast,
+        )
+        let delegate = MockVaultCoordinatorDelegate()
+        let navigator = MockStackNavigator()
+        let services = ServiceContainer.withMocks(
+            clientCertificateService: clientCertificateService,
+            environmentService: environmentService,
+            timeProvider: timeProvider,
+            vaultRepository: vaultRepository,
+        )
+        let realCoordinator = VaultCoordinator(
+            appExtensionDelegate: MockAppExtensionDelegate(),
+            delegate: delegate,
+            masterPasswordRepromptHelper: masterPasswordRepromptHelper,
+            module: MockAppModule(),
+            services: services,
+            stackNavigator: navigator,
+        )
+        let processor = VaultListProcessor(
+            coordinator: realCoordinator.asAnyCoordinator(),
+            masterPasswordRepromptHelper: masterPasswordRepromptHelper,
+            services: services,
+            state: VaultListState(),
+            vaultItemMoreOptionsHelper: vaultItemMoreOptionsHelper,
+        )
+
+        await processor.perform(.refreshVault)
+
+        let alert = try XCTUnwrap(navigator.alerts.last)
+        XCTAssertEqual(alert.message, Localizations.clientCertificateExpiredRecovery)
+        XCTAssertEqual(
+            processor.state.loadingState,
+            .error(errorMessage: Localizations.clientCertificateExpiredRecovery),
+        )
+        try await alert.tapAction(title: Localizations.accountSecurity)
+        XCTAssertEqual(delegate.switchToSettingsTabRoute, .accountSecurity)
+        XCTAssertFalse(vaultRepository.fetchSyncCalled)
     }
 
     /// `perform(_:)` with `.refreshVault` leaves a toast that was shown for an unrelated reason

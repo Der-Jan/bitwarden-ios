@@ -1,8 +1,16 @@
+import Foundation
+
 // MARK: - AccountSecurityEffect
 
 /// Effects handled by the `AccountSecurityProcessor`.
 ///
 enum AccountSecurityEffect: Equatable {
+    /// Reads a security-scoped certificate file selected by the user.
+    case readCertificateFile(URL)
+
+    /// Installs the selected file for the account being managed.
+    case replaceClientCertificate(password: String)
+
     /// The account fingerprint phrase button was tapped.
     case accountFingerprintPhrasePressed
 

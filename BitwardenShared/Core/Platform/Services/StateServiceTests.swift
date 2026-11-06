@@ -54,6 +54,38 @@ class StateServiceTests: BitwardenTestCase { // swiftlint:disable:this type_body
 
     // MARK: Tests
 
+    /// Replacing a certificate preserves all URLs, other accounts, and the active account selection.
+    func test_setClientCertificate_preservesAccountState() async throws {
+        var first = Account.fixture(profile: .fixture(userId: "1"))
+        let originalURLs = EnvironmentURLData(
+            api: URL(string: "https://example.com/custom-api"),
+            base: .example,
+            clientCertificateAlias: "Old",
+            clientCertificateFingerprint: "old",
+            fillAssistRulesUrl: URL(string: "https://example.com/rules"),
+        )
+        first.settings.environmentUrls = originalURLs
+        let second = Account.fixture(profile: .fixture(userId: "2"))
+        appSettingsStore.state = State(accounts: ["1": first, "2": second], activeUserId: "2")
+
+        try await subject.setClientCertificate(fingerprint: "new", userId: "1")
+
+        let state = try XCTUnwrap(appSettingsStore.state)
+        var expectedURLs = originalURLs
+        expectedURLs.clientCertificateFingerprint = "new"
+        XCTAssertEqual(state.accounts["1"]?.settings.environmentUrls, expectedURLs)
+        XCTAssertEqual(state.accounts["2"], second)
+        XCTAssertEqual(state.activeUserId, "2")
+    }
+
+    func test_setClientCertificate_removedAccountIsNotRecreated() async {
+        appSettingsStore.state = State(accounts: [:], activeUserId: nil)
+        await assertAsyncThrows(error: StateServiceError.noAccountForUserId) {
+            try await subject.setClientCertificate(fingerprint: "new", userId: "removed")
+        }
+        XCTAssertTrue(appSettingsStore.state?.accounts.isEmpty == true)
+    }
+
     /// `addAccount(_:)` adds an initial account and makes it the active account.
     func test_addAccount_initialAccount() async throws {
         let account = Account.fixture(profile: Account.AccountProfile.fixture(userId: "1"))

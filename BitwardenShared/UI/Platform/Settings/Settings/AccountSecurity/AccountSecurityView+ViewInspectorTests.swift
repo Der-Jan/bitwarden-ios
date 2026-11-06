@@ -33,6 +33,20 @@ class AccountSecurityViewTests: BitwardenTestCase {
 
     // MARK: Tests
 
+    @MainActor
+    func test_clientCertificate_replacementButtonVisibleForConfiguredAccount() throws {
+        processor.state.certificateAlias = "Personal server"
+        processor.state.certificateValidity = ClientCertificateValidity(notBefore: .distantPast, notAfter: .distantPast)
+        let button = try subject.inspect().find(button: Localizations.replaceCertificate)
+        try button.tap()
+        XCTAssertEqual(processor.dispatchedActions.last, .replaceCertificateTapped)
+    }
+
+    @MainActor
+    func test_clientCertificate_hiddenForUnconfiguredAccount() {
+        XCTAssertThrowsError(try subject.inspect().find(button: Localizations.replaceCertificate))
+    }
+
     /// Tapping the Account fingerprint phrase button dispatches the `.accountFingerprintPhrasePressed` effect.
     @MainActor
     func test_accountFingerprintPhrase_tap() throws {

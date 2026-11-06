@@ -18,6 +18,12 @@ protocol ClientCertificateService: AnyObject { // sourcery: AutoMockable
     ///
     func getClientCertificateIdentity() async -> SecIdentity?
 
+    /// Returns validity dates for the identity referenced by an account's fingerprint.
+    func getCertificateValidity(fingerprint: String) async throws -> ClientCertificateValidity?
+
+    /// Imports and persists a replacement for one account, leaving other accounts unchanged.
+    func replaceCertificate(data: Data, password: String, userId: String) async throws
+
     /// Import a client certificate from PKCS#12 data.
     ///
     /// Parses the certificate, stores the identity in the Keychain, and returns the SHA-256
@@ -75,6 +81,9 @@ final class DefaultClientCertificateService: ClientCertificateService {
     /// The service used to manage application state.
     private let stateService: StateService
 
+    /// The clock used when checking imported certificates.
+    private let timeProvider: TimeProvider
+
     // MARK: Initialization
 
     /// Initialize a `DefaultClientCertificateService`.
@@ -90,11 +99,13 @@ final class DefaultClientCertificateService: ClientCertificateService {
         errorReporter: ErrorReporter,
         keychainRepository: KeychainRepository,
         stateService: StateService,
+        timeProvider: TimeProvider = CurrentTime(),
     ) {
         self.environmentService = environmentService
         self.errorReporter = errorReporter
         self.keychainRepository = keychainRepository
         self.stateService = stateService
+        self.timeProvider = timeProvider
     }
 
     // MARK: Methods
@@ -137,6 +148,11 @@ final class DefaultClientCertificateService: ClientCertificateService {
 
         // SecIdentity is a CoreFoundation type; use CFTypeRef bridge instead of conditional cast.
         let identity = identityRef as! SecIdentity // swiftlint:disable:this force_cast
+        let validity = try certificateValidity(for: identity)
+        guard validity.notAfter > timeProvider.presentTime else { throw ClientCertificateError.certificateExpired }
+        guard validity.notBefore <= timeProvider.presentTime else {
+            throw ClientCertificateError.certificateNotYetValid
+        }
         let fingerprint = try certificateFingerprint(for: identity)
 
         // Only add to Keychain if this certificate isn't already stored.
@@ -147,6 +163,38 @@ final class DefaultClientCertificateService: ClientCertificateService {
         }
 
         return fingerprint
+    }
+
+    func getCertificateValidity(fingerprint: String) async throws -> ClientCertificateValidity? {
+        guard let identity = try await keychainRepository.getClientCertificateIdentity(fingerprint: fingerprint) else {
+            return nil
+        }
+        return try certificateValidity(for: identity)
+    }
+
+    func replaceCertificate(data: Data, password: String, userId: String) async throws {
+        // Resolve the selected account before import; never recreate an account removed during import.
+        let previousURLs = try await stateService.getEnvironmentURLs(userId: userId)
+        let fingerprint = try await importCertificate(
+            data: data, password: password, alias: previousURLs?.clientCertificateAlias ?? "",
+        )
+        do {
+            try await stateService.setClientCertificate(fingerprint: fingerprint, userId: userId)
+        } catch {
+            try? await removeCertificate(fingerprint: fingerprint)
+            throw error
+        }
+        if await (try? stateService.getAccountIdOrActiveId(userId: nil)) == userId {
+            await environmentService.loadURLsForActiveAccount()
+        }
+        if let previous = previousURLs?.clientCertificateFingerprint, previous != fingerprint {
+            do {
+                try await removeCertificate(fingerprint: previous)
+            } catch {
+                // The replacement is already saved; cleanup failure must not report import failure.
+                errorReporter.log(error: error)
+            }
+        }
     }
 
     func removeCertificate(fingerprint: String) async throws {
@@ -172,6 +220,15 @@ final class DefaultClientCertificateService: ClientCertificateService {
     }
 
     // MARK: Private
+
+    /// Extracts public validity metadata without exposing the private key.
+    private func certificateValidity(for identity: SecIdentity) throws -> ClientCertificateValidity {
+        var certificate: SecCertificate?
+        guard SecIdentityCopyCertificate(identity, &certificate) == errSecSuccess, let certificate else {
+            throw ClientCertificateError.invalidCertificate
+        }
+        return try ClientCertificateValidity(certificate: certificate)
+    }
 
     /// Computes the SHA-256 fingerprint of the certificate within a SecIdentity.
     ///
@@ -199,16 +256,20 @@ final class DefaultClientCertificateService: ClientCertificateService {
             return true
         }
 
-        // Check all regular accounts' environment URLs.
-        let accounts = await (try? stateService.getAccounts()) ?? []
-        for account in accounts {
-            let accountUserId = account.profile.userId
-            if let excludingUserId, accountUserId == excludingUserId { continue }
-            let accountURLs = try? await stateService.getEnvironmentURLs(userId: accountUserId)
-            if accountURLs?.clientCertificateFingerprint == fingerprint { return true }
+        // Keep the identity if account references cannot be checked safely.
+        do {
+            let accounts = try await stateService.getAccounts()
+            for account in accounts {
+                let accountUserId = account.profile.userId
+                if let excludingUserId, accountUserId == excludingUserId { continue }
+                let accountURLs = try await stateService.getEnvironmentURLs(userId: accountUserId)
+                if accountURLs?.clientCertificateFingerprint == fingerprint { return true }
+            }
+            return false
+        } catch {
+            errorReporter.log(error: error)
+            return true
         }
-
-        return false
     }
 }
 
@@ -226,6 +287,9 @@ enum ClientCertificateError: Error, LocalizedError {
     /// The certificate has expired.
     case certificateExpired
 
+    /// The certificate's validity interval has not started.
+    case certificateNotYetValid
+
     var errorDescription: String? {
         switch self {
         case .invalidCertificate:
@@ -234,6 +298,8 @@ enum ClientCertificateError: Error, LocalizedError {
             Localizations.theCertificatePasswordIsIncorrect
         case .certificateExpired:
             Localizations.theCertificateHasExpired
+        case .certificateNotYetValid:
+            Localizations.theCertificateIsNotYetValid
         }
     }
 }

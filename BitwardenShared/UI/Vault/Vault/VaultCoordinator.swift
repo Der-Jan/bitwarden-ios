@@ -83,6 +83,7 @@ final class VaultCoordinator: Coordinator, HasStackNavigator { // swiftlint:disa
         & HasCameraService
         & HasChangeKdfService
         & HasCipherOwnershipHelper
+        & HasClientCertificateService
         & HasClientService
         & HasConfigService
         & HasEnvironmentService
@@ -184,6 +185,42 @@ final class VaultCoordinator: Coordinator, HasStackNavigator { // swiftlint:disa
     }
 
     // MARK: Methods
+
+    /// Explains expired mTLS identities on vault connection failures and opens the recovery screen.
+    func showErrorAlert(error: Error, tryAgain: (() async -> Void)?, onDismissed: (() -> Void)?) async {
+        var isExpiredCertificate = error as? ClientCertificateError == .certificateExpired
+        if error is URLError,
+           let urls = try? await services.stateService.getEnvironmentURLs(userId: nil),
+           let fingerprint = urls.clientCertificateFingerprint,
+           let validity = try? await services.clientCertificateService.getCertificateValidity(fingerprint: fingerprint),
+           validity.notAfter <= services.timeProvider.presentTime {
+            isExpiredCertificate = true
+        }
+        if isExpiredCertificate {
+            showAlert(Alert(
+                title: Localizations.clientCertificateMtls,
+                message: Localizations.clientCertificateExpiredRecovery,
+                alertActions: [
+                    AlertAction(title: Localizations.accountSecurity, style: .default) { [weak self] _ in
+                        self?.delegate?.switchToSettingsTab(route: .accountSecurity)
+                    },
+                    AlertAction(title: Localizations.cancel, style: .cancel),
+                ],
+            ), onDismissed: onDismissed)
+            return
+        }
+
+        let callStack = Thread.callStackSymbols.joined(separator: "\n")
+        showAlert(Alert.networkResponseError(
+            error,
+            shareErrorDetails: { [weak self] in
+                guard let self else { return }
+                let report = await services.errorReportBuilder.buildShareErrorLog(for: error, callStack: callStack)
+                stackNavigator?.present(UIActivityViewController(activityItems: [report], applicationActivities: nil))
+            },
+            tryAgain: tryAgain,
+        ), onDismissed: onDismissed)
+    }
 
     func handleEvent(_ event: AuthAction, context: AnyObject?) async {
         switch event {

@@ -144,6 +144,18 @@ class MockStateService: StateService, ActiveAccountStateProvider, AutofillStateS
     lazy var activeIdSubject = CurrentValueSubject<String?, Never>(self.activeAccount?.profile.userId)
     lazy var appThemeSubject = CurrentValueSubject<AppTheme, Never>(self.appTheme ?? .default)
 
+    var setClientCertificateError: Error?
+
+    func setClientCertificate(fingerprint: String, userId: String) async throws {
+        if let setClientCertificateError { throw setClientCertificateError }
+        var urls = environmentURLs[userId] ?? activeAccount?.settings.environmentUrls ?? EnvironmentURLData()
+        urls.clientCertificateFingerprint = fingerprint
+        environmentURLs[userId] = urls
+        if activeAccount?.profile.userId == userId {
+            activeAccount?.settings.environmentUrls = urls
+        }
+    }
+
     func addAccount(_ account: Account) async {
         accountsAdded.append(account)
         activeAccount = account

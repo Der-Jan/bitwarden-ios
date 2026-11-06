@@ -13,6 +13,7 @@ class AccountSecurityProcessorTests: BitwardenTestCase { // swiftlint:disable:th
     var appSettingsStore: MockAppSettingsStore!
     var authRepository: MockAuthRepository!
     var biometricsRepository: MockBiometricsRepository!
+    var clientCertificateService: MockClientCertificateService!
     var configService: MockConfigService!
     var coordinator: MockCoordinator<SettingsRoute, SettingsEvent>!
     var errorReporter: MockErrorReporter!
@@ -33,6 +34,7 @@ class AccountSecurityProcessorTests: BitwardenTestCase { // swiftlint:disable:th
         appSettingsStore = MockAppSettingsStore()
         authRepository = MockAuthRepository()
         biometricsRepository = MockBiometricsRepository()
+        clientCertificateService = MockClientCertificateService()
         configService = MockConfigService()
         coordinator = MockCoordinator<SettingsRoute, SettingsEvent>()
         errorReporter = MockErrorReporter()
@@ -52,6 +54,7 @@ class AccountSecurityProcessorTests: BitwardenTestCase { // swiftlint:disable:th
             services: ServiceContainer.withMocks(
                 authRepository: authRepository,
                 biometricsRepository: biometricsRepository,
+                clientCertificateService: clientCertificateService,
                 configService: configService,
                 errorReporter: errorReporter,
                 policyService: policyService,
@@ -1098,5 +1101,83 @@ class AccountSecurityProcessorTests: BitwardenTestCase { // swiftlint:disable:th
         try await alert.tapAction(title: Localizations.yes)
 
         XCTAssertEqual(subject.state.twoStepLoginUrl, URL.example)
+    }
+
+    @MainActor
+    func test_certificate_loadExpiredWhileOffline() async throws {
+        let validity = ClientCertificateValidity(notBefore: .distantPast, notAfter: Date(timeIntervalSince1970: 1))
+        stateService.activeAccount = .fixture(profile: .fixture(userId: "1"))
+        stateService.environmentURLs["1"] = EnvironmentURLData(
+            base: .example, clientCertificateAlias: "Expired identity", clientCertificateFingerprint: "old",
+        )
+        clientCertificateService.getCertificateValidityReturnValue = validity
+
+        await subject.perform(.appeared)
+
+        XCTAssertEqual(subject.state.certificateAlias, "Expired identity")
+        XCTAssertEqual(subject.state.certificateValidity, validity)
+        XCTAssertEqual(subject.state.certificateStatus(at: .now), Localizations.theCertificateHasExpired)
+    }
+
+    @MainActor
+    func test_certificate_missingIdentityStillAllowsReplacement() async {
+        stateService.activeAccount = .fixture(profile: .fixture(userId: "1"))
+        stateService.environmentURLs["1"] = EnvironmentURLData(base: .example, clientCertificateFingerprint: "missing")
+        await subject.perform(.appeared)
+        XCTAssertNotNil(subject.state.certificateAlias)
+        XCTAssertNil(subject.state.certificateValidity)
+        subject.receive(.replaceCertificateTapped)
+        XCTAssertTrue(subject.state.showingCertificateImport)
+    }
+
+    @MainActor
+    func test_certificate_nonMtlsAccountHidesSection() async {
+        stateService.activeAccount = .fixture()
+        await subject.perform(.appeared)
+        XCTAssertNil(subject.state.certificateAlias)
+        XCTAssertFalse(clientCertificateService.getCertificateValidityCalled)
+    }
+
+    @MainActor
+    func test_certificate_replaceSuccessClearsTransientData() async {
+        subject.state.certificateUserId = "selected-account"
+        subject.state.pendingCertificateData = Data([1, 2, 3])
+        subject.state.showingCertificateImport = true
+
+        await subject.perform(.replaceClientCertificate(password: "secret"))
+
+        XCTAssertEqual(clientCertificateService.replaceCertificateReceivedArguments?.userId, "selected-account")
+        XCTAssertEqual(clientCertificateService.replaceCertificateReceivedArguments?.data, Data([1, 2, 3]))
+        XCTAssertFalse(subject.state.showingCertificateImport)
+        XCTAssertNil(subject.state.pendingCertificateData)
+        XCTAssertFalse(subject.state.isImportingCertificate)
+    }
+
+    @MainActor
+    func test_certificate_replaceFailureKeepsOldMetadataAndAllowsRetry() async {
+        subject.state.certificateUserId = "1"
+        subject.state.certificateAlias = "Old"
+        subject.state.pendingCertificateData = Data([1])
+        subject.state.showingCertificateImport = true
+        clientCertificateService.replaceCertificateThrowableError = ClientCertificateError.invalidPassword
+
+        await subject.perform(.replaceClientCertificate(password: "wrong"))
+
+        XCTAssertEqual(subject.state.certificateAlias, "Old")
+        XCTAssertEqual(subject.state.certificateImportError, Localizations.theCertificatePasswordIsIncorrect)
+        XCTAssertTrue(subject.state.showingCertificateImport)
+        XCTAssertNotNil(subject.state.pendingCertificateData)
+        XCTAssertFalse(subject.state.isImportingCertificate)
+    }
+
+    @MainActor
+    func test_certificate_dismissClearsDataAndError() {
+        subject.state.pendingCertificateData = Data([1])
+        subject.state.certificateImportError = "Failure"
+        subject.state.showingCertificateImport = true
+        subject.receive(.certificateImportDismissed)
+        XCTAssertNil(subject.state.pendingCertificateData)
+        XCTAssertNil(subject.state.certificateImportError)
+        XCTAssertFalse(subject.state.showingCertificateImport)
     }
 } // swiftlint:disable:this file_length

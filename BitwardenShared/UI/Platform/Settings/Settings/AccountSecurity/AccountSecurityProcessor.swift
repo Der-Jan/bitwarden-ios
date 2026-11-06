@@ -16,6 +16,7 @@ final class AccountSecurityProcessor: StateProcessor<// swiftlint:disable:this t
 
     typealias Services = HasAuthRepository
         & HasBiometricsRepository
+        & HasClientCertificateService
         & HasConfigService
         & HasErrorReporter
         & HasPolicyService
@@ -31,7 +32,7 @@ final class AccountSecurityProcessor: StateProcessor<// swiftlint:disable:this t
     private let coordinator: AnyCoordinator<SettingsRoute, SettingsEvent>
 
     /// The services used by this processor.
-    private var services: Services
+    let services: Services
 
     /// A helper object to set up vault unlock methods.
     private let vaultUnlockSetupHelper: VaultUnlockSetupHelper
@@ -62,6 +63,10 @@ final class AccountSecurityProcessor: StateProcessor<// swiftlint:disable:this t
 
     override func perform(_ effect: AccountSecurityEffect) async {
         switch effect {
+        case let .readCertificateFile(url):
+            readCertificateFile(url)
+        case let .replaceClientCertificate(password):
+            await replaceClientCertificate(password: password)
         case .accountFingerprintPhrasePressed:
             await showAccountFingerprintPhraseAlert()
         case .appeared:
@@ -89,6 +94,8 @@ final class AccountSecurityProcessor: StateProcessor<// swiftlint:disable:this t
 
     override func receive(_ action: AccountSecurityAction) {
         switch action {
+        case .certificateFileImportFailed, .certificateImportDismissed, .replaceCertificateTapped:
+            receiveCertificateAction(action)
         case .clearFingerprintPhraseUrl:
             state.fingerprintPhraseUrl = nil
         case .clearTwoStepLoginUrl:
@@ -119,6 +126,7 @@ final class AccountSecurityProcessor: StateProcessor<// swiftlint:disable:this t
     /// The view has appeared.
     ///
     private func appeared() async {
+        await loadClientCertificate()
         do {
             if let policy = try await services.policyService.fetchTimeoutPolicyValues() {
                 state.policyTimeoutAction = policy.timeoutAction

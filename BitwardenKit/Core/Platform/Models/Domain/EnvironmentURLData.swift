@@ -15,7 +15,7 @@ public struct EnvironmentURLData: Codable, Equatable, Hashable, Sendable {
     public let clientCertificateAlias: String?
 
     /// The SHA-256 fingerprint of the client certificate used for mTLS, if configured.
-    public let clientCertificateFingerprint: String?
+    public var clientCertificateFingerprint: String?
 
     /// The URL for the events API.
     public let events: URL?

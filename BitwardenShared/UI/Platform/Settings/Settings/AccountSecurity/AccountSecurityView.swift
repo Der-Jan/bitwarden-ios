@@ -33,11 +33,19 @@ struct AccountSecurityView: View {
 
             sessionTimeoutSection
 
+            clientCertificateSection
+
             otherSection
         }
         .animation(.easeInOut, value: store.state.badgeState?.vaultUnlockSetupProgress == .complete)
         .scrollView()
         .navigationBar(title: Localizations.accountSecurity, titleDisplayMode: .inline)
+        .sheet(isPresented: store.binding(
+            get: \.showingCertificateImport,
+            send: { _ in .certificateImportDismissed },
+        )) {
+            ClientCertificateImportView(store: store)
+        }
         .onChange(of: store.state.twoStepLoginUrl) { newValue in
             guard let url = newValue else { return }
             openURL(url)

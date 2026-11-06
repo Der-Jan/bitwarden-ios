@@ -77,6 +77,27 @@ struct AccountSecurityState: Equatable {
     /// The biometric auth status for the user.
     var biometricUnlockStatus: BiometricsUnlockStatus = .notAvailable
 
+    /// The account whose certificate is being managed; captured before an import starts.
+    var certificateUserId: String?
+
+    /// The configured certificate label. A nil value hides the section for non-mTLS accounts.
+    var certificateAlias: String?
+
+    /// Public validity metadata, or nil if the identity cannot be read.
+    var certificateValidity: ClientCertificateValidity?
+
+    /// Whether the replacement sheet is presented.
+    var showingCertificateImport = false
+
+    /// Certificate bytes selected for replacement, held only until the sheet closes.
+    var pendingCertificateData: Data?
+
+    /// A recoverable file or import error shown in the replacement sheet.
+    var certificateImportError: String?
+
+    /// Whether a certificate import is in progress.
+    var isImportingCertificate = false
+
     /// The URL for account fingerprint phrase external link.
     var fingerprintPhraseUrl: URL?
 
@@ -283,5 +304,13 @@ struct AccountSecurityState: Equatable {
     /// Whether the unlock with Pin feature is available.
     var unlockWithPinFeatureAvailable: Bool {
         !removeUnlockWithPinPolicyEnabled || isUnlockWithPINCodeOn
+    }
+
+    /// Certificate status evaluated against the current time, including while the screen stays open.
+    func certificateStatus(at date: Date) -> String {
+        guard let validity = certificateValidity else { return Localizations.clientCertificateUnavailable }
+        if date >= validity.notAfter { return Localizations.theCertificateHasExpired }
+        if date < validity.notBefore { return Localizations.theCertificateIsNotYetValid }
+        return Localizations.clientCertificateValid
     }
 }

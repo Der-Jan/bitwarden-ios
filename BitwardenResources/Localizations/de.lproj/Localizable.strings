@@ -1306,3 +1306,11 @@
 "OnlyCodesStoredLocallyOnThisDeviceDescriptionLong" = "Es werden nur lokal auf diesem Gerät gespeicherte Codes exportiert. Synchronisierte Codes sind nicht enthalten.";
 "ConfirmExport" = "Export bestätigen";
 "ForYourSecurityDontShareOrSendDescriptionLong" = "Dieser Export enthält deine Tresordaten in einem unverschlüsseltem Format. Du solltest sie nicht speichern oder über unsichere Kanäle (z. B. E-Mail) senden. Lösche sie sofort nach ihrer Verwendung.";
+
+"ClientCertificateValid" = "Gültig";
+"ClientCertificateExpiresOn" = "Läuft ab: %1$@";
+"ClientCertificateUnavailable" = "Zertifikat nicht verfügbar. Importieren Sie ein neues Zertifikat, um die Verbindung wiederherzustellen.";
+"ClientCertificateReplacementDescription" = "Ersetzen Sie das Zertifikat für dieses Konto, ohne sich abzumelden.";
+"ClientCertificateFileSelected" = "Zertifikatsdatei ausgewählt";
+"TheCertificateIsNotYetValid" = "Das Zertifikat ist noch nicht gültig.";
+"ClientCertificateExpiredRecovery" = "Das Client-Zertifikat ist abgelaufen. Öffnen Sie die Kontosicherheit, um ein neues Zertifikat zu importieren, ohne sich abzumelden.";

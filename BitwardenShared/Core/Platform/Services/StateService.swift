@@ -23,6 +23,9 @@ protocol StateService: AnyObject, DebugStateService {
     ///
     func addAccount(_ account: Account) async
 
+    /// Updates an existing account's certificate fingerprint without switching accounts.
+    func setClientCertificate(fingerprint: String, userId: String) async throws
+
     /// Clears the pins stored on device and in memory for a user.
     ///
     /// - Parameter userId: The user ID of the user whose pins should be cleared. Defaults to the
@@ -1632,6 +1635,16 @@ actor DefaultStateService: StateService, ActiveAccountStateProvider, ConfigState
 
         state.accounts[account.profile.userId] = account
         state.activeUserId = account.profile.userId
+    }
+
+    func setClientCertificate(fingerprint: String, userId: String) async throws {
+        guard var state = appSettingsStore.state else { throw StateServiceError.noAccounts }
+        guard var urls = state.accounts[userId]?.settings.environmentUrls else {
+            throw StateServiceError.noAccountForUserId
+        }
+        urls.clientCertificateFingerprint = fingerprint
+        state.accounts[userId]?.settings.environmentUrls = urls
+        appSettingsStore.state = state
     }
 
     func clearPins(userId: String?) async throws {

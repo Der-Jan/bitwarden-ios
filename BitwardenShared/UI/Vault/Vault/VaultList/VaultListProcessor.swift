@@ -23,6 +23,7 @@ final class VaultListProcessor: StateProcessor<
         & HasBillingRepository
         & HasBillingService
         & HasChangeKdfService
+        & HasClientCertificateService
         & HasConfigService
         & HasEnvironmentService
         & HasErrorReporter
@@ -468,6 +469,8 @@ extension VaultListProcessor {
     private func handleSyncFailure(error: Error) async {
         services.errorReporter.log(error: error)
 
+        if await showExpiredCertificateAlertIfNeeded() { return }
+
         let message = (error as? ServerError)?.message
             ?? Localizations.weCouldntSyncYourVaultWithTheServerDescriptionLong
         let needsSync = try? await services.vaultRepository.needsSync()
@@ -564,6 +567,8 @@ extension VaultListProcessor {
     /// - Parameter syncWithPeriodicCheck: Whether the sync should take into consideration
     /// the periodic check.
     private func refreshVault(syncWithPeriodicCheck: Bool) async {
+        // A manual refresh must surface expiry even if sync is throttled or TLS reuses a connection.
+        if !syncWithPeriodicCheck, await showExpiredCertificateAlertIfNeeded() { return }
         do {
             let takingTimeTask = Task {
                 try await Task.sleep(forSeconds: 5)
@@ -600,6 +605,25 @@ extension VaultListProcessor {
         } catch {
             services.errorReporter.log(error: error)
             await coordinator.showErrorAlert(error: error)
+        }
+    }
+
+    /// Offers certificate recovery independently of how a server reports an authentication failure.
+    private func showExpiredCertificateAlertIfNeeded() async -> Bool {
+        guard let fingerprint = services.environmentService.clientCertificateFingerprint,
+              !fingerprint.isEmpty else { return false }
+        do {
+            guard let validity = try await services.clientCertificateService.getCertificateValidity(
+                fingerprint: fingerprint,
+            ), validity.notAfter <= services.timeProvider.presentTime else { return false }
+            if state.loadingState.data?.isEmpty != false {
+                state.loadingState = .error(errorMessage: Localizations.clientCertificateExpiredRecovery)
+            }
+            await coordinator.showErrorAlert(error: ClientCertificateError.certificateExpired)
+            return true
+        } catch {
+            services.errorReporter.log(error: error)
+            return false
         }
     }
 

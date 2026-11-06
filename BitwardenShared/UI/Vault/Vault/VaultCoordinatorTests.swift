@@ -1,5 +1,6 @@
 import BitwardenKit
 import BitwardenKitMocks
+import BitwardenResources
 import SwiftUI
 import TestHelpers
 import XCTest
@@ -12,6 +13,8 @@ import XCTest
 class VaultCoordinatorTests: BitwardenTestCase { // swiftlint:disable:this type_body_length
     // MARK: Properties
 
+    var clientCertificateService: MockClientCertificateService!
+    var stateService: MockStateService!
     var delegate: MockVaultCoordinatorDelegate!
     var errorReporter: MockErrorReporter!
     var masterPasswordRepromptHelper: MockMasterPasswordRepromptHelper!
@@ -25,6 +28,8 @@ class VaultCoordinatorTests: BitwardenTestCase { // swiftlint:disable:this type_
     override func setUp() {
         super.setUp()
 
+        clientCertificateService = MockClientCertificateService()
+        stateService = MockStateService()
         errorReporter = MockErrorReporter()
         delegate = MockVaultCoordinatorDelegate()
         masterPasswordRepromptHelper = MockMasterPasswordRepromptHelper()
@@ -37,7 +42,9 @@ class VaultCoordinatorTests: BitwardenTestCase { // swiftlint:disable:this type_
             masterPasswordRepromptHelper: masterPasswordRepromptHelper,
             module: module,
             services: ServiceContainer.withMocks(
+                clientCertificateService: clientCertificateService,
                 errorReporter: errorReporter,
+                stateService: stateService,
                 vaultRepository: vaultRepository,
             ),
             stackNavigator: stackNavigator,
@@ -57,6 +64,32 @@ class VaultCoordinatorTests: BitwardenTestCase { // swiftlint:disable:this type_
     }
 
     // MARK: Tests
+
+    @MainActor
+    func test_showErrorAlert_expiredCertificateOpensAccountSecurity() async throws {
+        stateService.activeAccount = .fixture(profile: .fixture(userId: "1"))
+        stateService.environmentURLs["1"] = EnvironmentURLData(base: .example, clientCertificateFingerprint: "old")
+        clientCertificateService.getCertificateValidityReturnValue = ClientCertificateValidity(
+            notBefore: .distantPast, notAfter: .distantPast,
+        )
+        await subject.showErrorAlert(error: URLError(.clientCertificateRejected), tryAgain: nil, onDismissed: nil)
+        let alert = try XCTUnwrap(stackNavigator.alerts.last)
+        XCTAssertEqual(alert.message, Localizations.clientCertificateExpiredRecovery)
+        try await alert.tapAction(title: Localizations.accountSecurity)
+        XCTAssertEqual(delegate.switchToSettingsTabRoute, .accountSecurity)
+    }
+
+    @MainActor
+    func test_showErrorAlert_validCertificatePreservesNetworkError() async throws {
+        stateService.activeAccount = .fixture(profile: .fixture(userId: "1"))
+        stateService.environmentURLs["1"] = EnvironmentURLData(base: .example, clientCertificateFingerprint: "valid")
+        clientCertificateService.getCertificateValidityReturnValue = ClientCertificateValidity(
+            notBefore: .distantPast, notAfter: .distantFuture,
+        )
+        await subject.showErrorAlert(error: URLError(.notConnectedToInternet), tryAgain: nil, onDismissed: nil)
+        XCTAssertEqual(stackNavigator.alerts.last?.title, Localizations.internetConnectionRequiredTitle)
+        XCTAssertNil(delegate.switchToSettingsTabRoute)
+    }
 
     /// `didCompleteLoginsImport()` dismisses the import logins flow.
     @MainActor
@@ -229,7 +262,9 @@ class VaultCoordinatorTests: BitwardenTestCase { // swiftlint:disable:this type_
             masterPasswordRepromptHelper: masterPasswordRepromptHelper,
             module: module,
             services: ServiceContainer.withMocks(
+                clientCertificateService: clientCertificateService,
                 errorReporter: errorReporter,
+                stateService: stateService,
                 vaultRepository: vaultRepository,
             ),
             stackNavigator: mockNavController,
@@ -259,7 +294,9 @@ class VaultCoordinatorTests: BitwardenTestCase { // swiftlint:disable:this type_
             masterPasswordRepromptHelper: masterPasswordRepromptHelper,
             module: module,
             services: ServiceContainer.withMocks(
+                clientCertificateService: clientCertificateService,
                 errorReporter: errorReporter,
+                stateService: stateService,
                 vaultRepository: vaultRepository,
             ),
             stackNavigator: mockNavController,
