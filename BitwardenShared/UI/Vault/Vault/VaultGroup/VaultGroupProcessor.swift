@@ -14,7 +14,8 @@ final class VaultGroupProcessor: StateProcessor<// swiftlint:disable:this type_b
 >, HasTOTPCodesSections {
     // MARK: Types
 
-    typealias Services = HasAuthRepository
+    typealias Services = HasAppSettingsStore
+        & HasAuthRepository
         & HasBillingRepository
         & HasBillingService
         & HasConfigService
@@ -127,6 +128,7 @@ final class VaultGroupProcessor: StateProcessor<// swiftlint:disable:this type_b
         case let .accessibilityMoreOptionsActionPressed(item, kind):
             await performMoreOptionsAction(kind, for: item)
         case .appeared:
+            state.sortOrder = services.appSettingsStore.vaultListSortOrder
             await loadFeatureFlags()
             await loadHasPremiumAccount()
             await checkPersonalOwnershipPolicy()
@@ -193,6 +195,9 @@ final class VaultGroupProcessor: StateProcessor<// swiftlint:disable:this type_b
             state.searchText = newValue
         case let .searchVaultFilterChanged(newValue):
             state.searchVaultFilterType = newValue
+        case let .sortOrderChanged(order):
+            state.sortOrder = order
+            services.appSettingsStore.vaultListSortOrder = order
         case let .toastShown(newValue):
             state.toast = newValue
         }

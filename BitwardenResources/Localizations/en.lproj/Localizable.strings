@@ -1308,3 +1308,7 @@
 "ForYourSecurityDontShareOrSendDescriptionLong" = "For your security, don’t share or send this file over unsecured channels (like email), and delete it when you’re done.";
 /* Primary button on the generator screen that opens the add login screen, prefilled with the generated value. */
 "CreateLogin" = "Create login";
+
+"SortBy" = "Sort by";
+"LastUpdated" = "Last updated";
+"Url" = "URL";

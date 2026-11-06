@@ -151,6 +151,9 @@ struct VaultGroupState: Equatable, Sendable {
         !hasPremium && group == .archive
     }
 
+    /// The selected ordering of cipher rows. Items are sorted by name by default.
+    var sortOrder: VaultListSortOrder = .name
+
     /// Whether to show the special web icons.
     var showWebIcons = true
 

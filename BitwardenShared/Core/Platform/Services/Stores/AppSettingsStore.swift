@@ -74,6 +74,9 @@ protocol AppSettingsStore: AnyObject {
     /// The app's account state.
     var state: State? { get set }
 
+    /// The saved ordering of vault cipher rows.
+    var vaultListSortOrder: VaultListSortOrder { get set }
+
     /// The user's access token expiration date.
     ///
     /// - Parameter userId: The user ID associated with the access token expiration date.
@@ -981,6 +984,7 @@ extension DefaultAppSettingsStore: AppSettingsStore, ConfigSettingsStore {
         case usesKeyConnector(userId: String)
         case v2EncryptedMigrationsGracePeriodStart(userId: String)
         case v2UpgradeToken(userId: String)
+        case vaultListSortOrder
         case vaultTimeoutAction(userId: String)
 
         /// Returns the key used to store the data under for retrieving it later.
@@ -1120,6 +1124,8 @@ extension DefaultAppSettingsStore: AppSettingsStore, ConfigSettingsStore {
                 "v2EncryptedMigrationsGracePeriodStart_\(userId)"
             case let .v2UpgradeToken(userId):
                 "v2UpgradeToken_\(userId)"
+            case .vaultListSortOrder:
+                "vaultListSortOrder"
             case let .vaultTimeoutAction(userId):
                 "vaultTimeoutAction_\(userId)"
             }
@@ -1227,6 +1233,11 @@ extension DefaultAppSettingsStore: AppSettingsStore, ConfigSettingsStore {
             activeAccountIdSubject.send(newValue?.activeUserId)
             return store(newValue, for: .state)
         }
+    }
+
+    var vaultListSortOrder: VaultListSortOrder {
+        get { fetch(for: .vaultListSortOrder).flatMap(VaultListSortOrder.init(rawValue:)) ?? .name }
+        set { store(newValue.rawValue, for: .vaultListSortOrder) }
     }
 
     func accessTokenExpirationDate(userId: String) -> Date? {

@@ -17,6 +17,7 @@ import XCTest
 class VaultGroupProcessorTests: BitwardenTestCase { // swiftlint:disable:this type_body_length
     // MARK: Properties
 
+    var appSettingsStore: MockAppSettingsStore!
     var authRepository: MockAuthRepository!
     var billingRepository: MockBillingRepository!
     var billingService: MockBillingService!
@@ -42,6 +43,7 @@ class VaultGroupProcessorTests: BitwardenTestCase { // swiftlint:disable:this ty
     override func setUp() {
         super.setUp()
 
+        appSettingsStore = MockAppSettingsStore()
         authRepository = MockAuthRepository()
         billingRepository = MockBillingRepository()
         billingRepository.isInAppUpgradeAvailableReturnValue = false
@@ -69,6 +71,7 @@ class VaultGroupProcessorTests: BitwardenTestCase { // swiftlint:disable:this ty
             coordinator: coordinator.asAnyCoordinator(),
             masterPasswordRepromptHelper: masterPasswordRepromptHelper,
             services: ServiceContainer.withMocks(
+                appSettingsStore: appSettingsStore,
                 authRepository: authRepository,
                 billingRepository: billingRepository,
                 billingService: billingService,
@@ -94,6 +97,7 @@ class VaultGroupProcessorTests: BitwardenTestCase { // swiftlint:disable:this ty
     override func tearDown() {
         super.tearDown()
 
+        appSettingsStore = nil
         authRepository = nil
         billingRepository = nil
         billingService = nil
@@ -228,6 +232,7 @@ class VaultGroupProcessorTests: BitwardenTestCase { // swiftlint:disable:this ty
     /// `perform(_:)` with `.appeared` starts streaming vault items.
     @MainActor
     func test_perform_appeared() {
+        appSettingsStore.vaultListSortOrder = .lastUpdated
         let vaultListItem = VaultListItem.fixture()
         let vaultListSection = VaultListSection(id: "", items: [vaultListItem], name: "Items")
         vaultRepository.vaultListSubject.send(VaultListData(sections: [vaultListSection]))
@@ -240,6 +245,7 @@ class VaultGroupProcessorTests: BitwardenTestCase { // swiftlint:disable:this ty
         task.cancel()
 
         XCTAssertEqual(subject.state.loadingState, .data([vaultListSection]))
+        XCTAssertEqual(subject.state.sortOrder, .lastUpdated)
         XCTAssertFalse(vaultRepository.fetchSyncCalled)
     }
 
@@ -1056,6 +1062,14 @@ class VaultGroupProcessorTests: BitwardenTestCase { // swiftlint:disable:this ty
         subject.state.searchText = ""
         subject.receive(.searchTextChanged("search"))
         XCTAssertEqual(subject.state.searchText, "search")
+    }
+
+    /// Changing the sort order updates the screen and saves the preference.
+    @MainActor
+    func test_receive_sortOrderChanged() {
+        subject.receive(.sortOrderChanged(.url))
+        XCTAssertEqual(subject.state.sortOrder, .url)
+        XCTAssertEqual(appSettingsStore.vaultListSortOrder, .url)
     }
 
     /// `receive(_:)` with `.toastShown` updates the state's toast value.

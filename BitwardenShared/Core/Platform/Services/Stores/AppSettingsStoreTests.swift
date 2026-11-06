@@ -1495,4 +1495,20 @@ class AppSettingsStoreTests: BitwardenTestCase { // swiftlint:disable:this type_
         subject.setV2UpgradeToken(nil, userId: "1")
         XCTAssertNil(subject.v2UpgradeToken(userId: "1"))
     }
+
+    /// Vault sorting defaults to name and survives recreating the settings store.
+    func test_vaultListSortOrder() {
+        XCTAssertEqual(subject.vaultListSortOrder, .name)
+        for order in VaultListSortOrder.allCases {
+            subject.vaultListSortOrder = order
+            let restored = DefaultAppSettingsStore(userDefaults: userDefaults)
+            XCTAssertEqual(restored.vaultListSortOrder, order)
+        }
+    }
+
+    /// Unrecognized stored values fall back to name.
+    func test_vaultListSortOrder_unknownValue() {
+        userDefaults.set("unknown", forKey: "bwPreferencesStorage:vaultListSortOrder")
+        XCTAssertEqual(subject.vaultListSortOrder, .name)
+    }
 }

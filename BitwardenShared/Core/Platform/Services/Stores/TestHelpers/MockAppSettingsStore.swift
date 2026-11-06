@@ -37,6 +37,7 @@ class MockAppSettingsStore: AppSettingsStore { // swiftlint:disable:this type_bo
     var rememberedEmail: String?
     var rememberedOrgIdentifier: String?
     var reviewPromptData: BitwardenShared.ReviewPromptData?
+    var vaultListSortOrder: VaultListSortOrder = .name
 
     var biometricAuthenticationEnabled = [String: Bool?]()
     var clearClipboardValues = [String: ClearClipboardValue]()

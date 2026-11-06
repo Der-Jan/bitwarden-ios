@@ -74,7 +74,8 @@ final class VaultCoordinator: Coordinator, HasStackNavigator { // swiftlint:disa
         & ProfileSwitcherModule
         & VaultItemModule
 
-    typealias Services = HasApplication
+    typealias Services = HasAppSettingsStore
+        & HasApplication
         & HasAuthRepository
         & HasAuthService
         & HasAutofillCredentialService

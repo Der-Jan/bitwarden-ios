@@ -32,6 +32,26 @@ struct VaultGroupView: View {
                 placement: .navigationBarDrawer(displayMode: .always),
                 prompt: Localizations.search,
             )
+            .toolbar {
+                if store.state.group != .totp {
+                    ToolbarItem(placement: .topBarTrailing) {
+                        Menu {
+                            Picker(Localizations.sortBy, selection: store.binding(
+                                get: \.sortOrder,
+                                send: VaultGroupAction.sortOrderChanged,
+                            )) {
+                                ForEach(VaultListSortOrder.allCases, id: \.self) { order in
+                                    Text(order.localizedName).tag(order)
+                                }
+                            }
+                        } label: {
+                            Label(Localizations.sortBy, systemImage: "arrow.up.arrow.down")
+                        }
+                        .accessibilityIdentifier("VaultSortMenu")
+                        .accessibilityValue(store.state.sortOrder.localizedName)
+                    }
+                }
+            }
             .navigationTitle(store.state.group.navigationTitle)
             .navigationBarTitleDisplayMode(.inline)
             .background(SharedAsset.Colors.backgroundPrimary.swiftUIColor.ignoresSafeArea())
@@ -167,10 +187,11 @@ struct VaultGroupView: View {
                 LazyVStack(spacing: 0) {
                     searchVaultFilterRow
 
-                    ForEach(store.state.searchResults) { item in
+                    let results = store.state.sortOrder.sorted(store.state.searchResults)
+                    ForEach(results) { item in
                         vaultItemRow(
                             for: item,
-                            isLastInSection: store.state.searchResults.last == item,
+                            isLastInSection: results.last == item,
                         )
                         .background(SharedAsset.Colors.backgroundSecondary.swiftUIColor)
                     }
@@ -222,7 +243,7 @@ struct VaultGroupView: View {
         VStack(spacing: 16) {
             archivePremiumSubscriptionEndedCard
 
-            ForEach(sections) { section in
+            ForEach(store.state.sortOrder.sorted(sections)) { section in
                 VaultListSectionView(section: section) { item in
                     vaultItemRow(for: item, isLastInSection: section.items.last == item)
                 }

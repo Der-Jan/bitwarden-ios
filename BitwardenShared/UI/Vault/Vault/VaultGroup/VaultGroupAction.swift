@@ -31,6 +31,9 @@ enum VaultGroupAction: Equatable, Sendable {
     /// The selected vault filter for search changed.
     case searchVaultFilterChanged(VaultFilterType)
 
+    /// The selected vault sort order changed.
+    case sortOrderChanged(VaultListSortOrder)
+
     /// The toast was shown or hidden.
     case toastShown(Toast?)
 }
